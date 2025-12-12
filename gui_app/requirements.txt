@@ -1,0 +1,6 @@
+PyQt6
+ultralytics
+opencv-python
+numpy
+shapely
+pyinstaller

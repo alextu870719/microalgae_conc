@@ -1,0 +1,41 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      working-directory: ./gui_app
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install gdown
+
+    - name: Download Model
+      working-directory: ./gui_app
+      run: |
+        gdown --id 1adu984k21rbm2h9bIAe8YG2d1YZg9v2d -O best.pt
+
+    - name: Build with PyInstaller
+      working-directory: ./gui_app
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "MicroalgaeCounter" --add-data "inference.py;." --add-data "best.pt;." main.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: MicroalgaeCounter-Windows
+        path: gui_app/dist/MicroalgaeCounter
