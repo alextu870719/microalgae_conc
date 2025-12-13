@@ -52,9 +52,6 @@ class ImageScene(QGraphicsScene):
         self.temp_line = None
 
     def set_image(self, cv_img):
-        # Save current polygon points before clearing
-        current_points = self.points
-        
         self.clear()
         self.polygon_item = None 
         self.points = []
@@ -73,11 +70,10 @@ class ImageScene(QGraphicsScene):
         self.image_item = QGraphicsPixmapItem(pixmap)
         self.addItem(self.image_item)
         self.setSceneRect(0, 0, w, h)
-        
-        # Restore polygon if it exists
-        if current_points:
-            self.points = current_points
-            self.update_polygon(closed=True)
+
+    def set_roi_points(self, points):
+        self.points = [QPointF(x, y) for x, y in points]
+        self.update_polygon(closed=True)
 
     def start_drawing(self):
         self.drawing = True
@@ -192,6 +188,7 @@ class MainWindow(QMainWindow):
         self.current_image_path = None
         self.current_detections = None
         self.current_original_img = None
+        self.image_rois = {} # Dictionary to store ROI per image path
         
         # Determine the path to the model file
         if getattr(sys, 'frozen', False):
@@ -341,13 +338,26 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
             self.file_list.clear()
+            self.image_rois = {} # Clear ROIs when loading new folder
             self.file_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection) # Enable multi-selection
             extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']
             for f in os.listdir(folder):
                 if any(f.lower().endswith(ext) for ext in extensions):
                     self.file_list.addItem(os.path.join(folder, f))
 
+    def save_current_roi(self):
+        if self.current_image_path:
+            roi = self.scene.get_roi_points()
+            if roi:
+                self.image_rois[self.current_image_path] = roi
+            elif self.current_image_path in self.image_rois:
+                # If ROI was cleared, remove from dict
+                del self.image_rois[self.current_image_path]
+
     def load_image(self, item):
+        # Save ROI of previous image
+        self.save_current_roi()
+
         # Reset drawing state first to prevent crash
         if self.btn_draw_roi.isChecked():
             self.btn_draw_roi.setChecked(False)
@@ -370,6 +380,11 @@ class MainWindow(QMainWindow):
         if img is not None:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.scene.set_image(img)
+            
+            # Restore ROI if exists for this image
+            if path in self.image_rois:
+                self.scene.set_roi_points(self.image_rois[path])
+            
             self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
             self.btn_draw_roi.setChecked(False)
             self.scene.drawing = False # Explicitly stop drawing
@@ -388,6 +403,11 @@ class MainWindow(QMainWindow):
         if self.scene.polygon_item:
             self.scene.removeItem(self.scene.polygon_item)
             self.scene.polygon_item = None
+        
+        # Also remove from storage
+        if self.current_image_path and self.current_image_path in self.image_rois:
+            del self.image_rois[self.current_image_path]
+            
         self.btn_draw_roi.setChecked(False)
         self.toggle_drawing()
 
@@ -430,13 +450,18 @@ class MainWindow(QMainWindow):
         counts = []
         detector = MicroalgaeDetector(self.model_path)
         conf = self.spin_conf.value()
-        roi = self.scene.get_roi_points() # Use current ROI for all images
+        
+        # Save current ROI before processing
+        self.save_current_roi()
         
         # Note: This runs in main thread for simplicity, but could freeze UI for large batches
         # For better UX, this should be moved to a worker thread, but keeping it simple for now
         try:
             for i, item in enumerate(selected_items):
                 path = item.text()
+                # Use specific ROI for this image if available, else None (full image)
+                roi = self.image_rois.get(path)
+                
                 detections, _ = detector.predict(path, roi, conf)
                 counts.append(len(detections))
                 progress.setValue(i + 1)
