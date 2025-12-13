@@ -206,19 +206,19 @@ class MainWindow(QMainWindow):
             # If running as script
             application_path = os.path.dirname(os.path.abspath(__file__))
             
-        # Try best.pt first, then search for any .pt file
-        self.model_path = os.path.join(application_path, "best.pt")
+        # Try best.onnx first, then search for any .onnx file
+        self.model_path = os.path.join(application_path, "best.onnx")
         
         # Fallback: Check next to executable if not found in bundle (useful if user wants to override)
         if not os.path.exists(self.model_path) and getattr(sys, 'frozen', False):
              exe_dir = os.path.dirname(sys.executable)
-             external_model = os.path.join(exe_dir, "best.pt")
+             external_model = os.path.join(exe_dir, "best.onnx")
              if os.path.exists(external_model):
                  self.model_path = external_model
 
         if not os.path.exists(self.model_path):
             import glob
-            pt_files = glob.glob(os.path.join(application_path, "*.pt"))
+            pt_files = glob.glob(os.path.join(application_path, "*.onnx"))
             if pt_files:
                 self.model_path = pt_files[0]
         
@@ -452,7 +452,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", str(e))
 
     def load_model_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Model", "", "Model Files (*.pt)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select Model", "", "Model Files (*.onnx)")
         if path:
             self.model_path = path
             self.lbl_model.setText(f"Model: {os.path.basename(path)}")

@@ -17,33 +17,33 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install dependencies and Export Model
       working-directory: ./gui_app
       run: |
         python -m pip install --upgrade pip
-        # Install requirements first (this will pull GPU torch)
-        pip install -r requirements.txt
+        # Install ultralytics to export model
+        pip install ultralytics
         pip install gdown
-        # Uninstall GPU torch
-        pip uninstall -y torch torchvision torchaudio
-        # Re-install CPU torch
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
-        # Verify
-        python -c "import torch; print('Torch:', torch.__version__, 'CUDA:', torch.cuda.is_available())"
-
-    - name: Download Model
-      working-directory: ./gui_app
-      run: |
+        
+        # Download PT model
         gdown --id 1adu984k21rbm2h9bIAe8YG2d1YZg9v2d -O best.pt
         if (Test-Path best.pt) { Write-Host "Model downloaded successfully" } else { Write-Error "Model download failed"; exit 1 }
+        
+        # Export to ONNX
+        python -c "from ultralytics import YOLO; model = YOLO('best.pt'); model.export(format='onnx', opset=12)"
+        
+        # Uninstall heavy dependencies
+        pip uninstall -y ultralytics torch torchvision torchaudio
+        
+        # Install runtime dependencies (onnxruntime, pyqt6, etc.)
+        pip install -r requirements.txt
 
     - name: Build with PyInstaller
       working-directory: ./gui_app
       run: |
-        # Use copy-metadata for ultralytics (crucial for version/config detection)
-        # Use hidden-import to ensure modules are found without collecting everything
-        # Switch to --onefile for single executable
-        pyinstaller --noconfirm --onefile --windowed --clean --name "MicroalgaeCounter" --copy-metadata ultralytics --hidden-import=ultralytics --hidden-import=shapely --add-data "inference.py;." --add-data "best.pt;." main.py
+        # Build with ONNX Runtime
+        # Note: No need for copy-metadata or hidden-import for ultralytics anymore
+        pyinstaller --noconfirm --onedir --windowed --clean --name "MicroalgaeCounter" --hidden-import=shapely --add-data "inference.py;." --add-data "best.onnx;." main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
