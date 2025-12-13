@@ -50,6 +50,7 @@ class ImageScene(QGraphicsScene):
 
     def set_image(self, cv_img):
         self.clear()
+        self.polygon_item = None # Important: clear() deletes the C++ object, so we must reset the Python reference
         self.points = []
         self.drawing = False
         
