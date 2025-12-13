@@ -39,3 +39,18 @@ jobs:
       with:
         name: MicroalgaeCounter-Windows
         path: gui_app/dist/MicroalgaeCounter
+
+    - name: Zip Build for Release
+      working-directory: ./gui_app/dist
+      run: powershell Compress-Archive -Path MicroalgaeCounter -DestinationPath MicroalgaeCounter.zip
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "gui_app/dist/MicroalgaeCounter.zip"
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: "latest"
+        allowUpdates: true
+        replacesArtifacts: true
+        name: "Latest Build"
+        body: "Latest automatic build from main branch."
