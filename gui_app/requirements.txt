@@ -4,11 +4,3 @@ opencv-python
 numpy
 shapely
 pyinstaller
-pandas
-pillow
-scipy
-pyyaml
-tqdm
-psutil
-matplotlib
-seaborn

@@ -21,26 +21,25 @@ jobs:
       working-directory: ./gui_app
       run: |
         python -m pip install --upgrade pip
-        # Install all requirements (including GPU torch)
+        # Install CPU PyTorch first
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        # Install other requirements
         pip install -r requirements.txt
         pip install gdown
-        # Uninstall GPU torch
-        pip uninstall -y torch torchvision torchaudio
-        # Install CPU torch
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
-        # Verify
-        python -c "import torch; print('Torch:', torch.__version__, 'CUDA:', torch.cuda.is_available())"
+        pip list
 
     - name: Download Model
       working-directory: ./gui_app
       run: |
         gdown --id 1adu984k21rbm2h9bIAe8YG2d1YZg9v2d -O best.pt
+        if (Test-Path best.pt) { Write-Host "Model downloaded successfully" } else { Write-Error "Model download failed"; exit 1 }
 
     - name: Build with PyInstaller
       working-directory: ./gui_app
       run: |
-        # Use collect-all to ensure ultralytics works, but with CPU torch it should be small enough
-        pyinstaller --noconfirm --onedir --windowed --name "MicroalgaeCounter" --collect-all ultralytics --add-data "inference.py;." --add-data "best.pt;." main.py
+        # Use copy-metadata for ultralytics (crucial for version/config detection)
+        # Use hidden-import to ensure modules are found without collecting everything
+        pyinstaller --noconfirm --onedir --windowed --clean --name "MicroalgaeCounter" --copy-metadata ultralytics --hidden-import=ultralytics --hidden-import=shapely --add-data "inference.py;." --add-data "best.pt;." main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
