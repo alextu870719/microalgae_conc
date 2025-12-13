@@ -185,13 +185,26 @@ class MainWindow(QMainWindow):
         # Determine the path to the model file
         if getattr(sys, 'frozen', False):
             # If running as compiled exe
-            application_path = os.path.dirname(sys.executable)
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller --onefile mode: content is in temp dir
+                application_path = sys._MEIPASS
+            else:
+                # PyInstaller --onedir mode: content is in exe dir
+                application_path = os.path.dirname(sys.executable)
         else:
             # If running as script
             application_path = os.path.dirname(os.path.abspath(__file__))
             
         # Try best.pt first, then search for any .pt file
         self.model_path = os.path.join(application_path, "best.pt")
+        
+        # Fallback: Check next to executable if not found in bundle (useful if user wants to override)
+        if not os.path.exists(self.model_path) and getattr(sys, 'frozen', False):
+             exe_dir = os.path.dirname(sys.executable)
+             external_model = os.path.join(exe_dir, "best.pt")
+             if os.path.exists(external_model):
+                 self.model_path = external_model
+
         if not os.path.exists(self.model_path):
             import glob
             pt_files = glob.glob(os.path.join(application_path, "*.pt"))

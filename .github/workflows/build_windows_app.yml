@@ -42,17 +42,18 @@ jobs:
       run: |
         # Use copy-metadata for ultralytics (crucial for version/config detection)
         # Use hidden-import to ensure modules are found without collecting everything
-        pyinstaller --noconfirm --onedir --windowed --clean --name "MicroalgaeCounter" --copy-metadata ultralytics --hidden-import=ultralytics --hidden-import=shapely --add-data "inference.py;." --add-data "best.pt;." main.py
+        # Switch to --onefile for single executable
+        pyinstaller --noconfirm --onefile --windowed --clean --name "MicroalgaeCounter" --copy-metadata ultralytics --hidden-import=ultralytics --hidden-import=shapely --add-data "inference.py;." --add-data "best.pt;." main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MicroalgaeCounter-Windows
-        path: gui_app/dist/MicroalgaeCounter
+        path: gui_app/dist/MicroalgaeCounter.exe
 
     - name: Zip Build for Release
       working-directory: ./gui_app/dist
-      run: powershell Compress-Archive -Path MicroalgaeCounter -DestinationPath MicroalgaeCounter.zip
+      run: powershell Compress-Archive -Path MicroalgaeCounter.exe -DestinationPath MicroalgaeCounter.zip
 
     - name: Create Release
       uses: ncipollo/release-action@v1
