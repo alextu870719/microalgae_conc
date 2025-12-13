@@ -5,7 +5,8 @@ import numpy as np
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QFileDialog, QListWidget, QSplitter, 
                              QProgressBar, QMessageBox, QGraphicsView, QGraphicsScene, 
-                             QGraphicsPixmapItem, QGraphicsPolygonItem)
+                             QGraphicsPixmapItem, QGraphicsPolygonItem, QDialog, QFormLayout, 
+                             QSpinBox, QDoubleSpinBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF
 from PyQt6.QtGui import QPixmap, QImage, QPolygonF, QPen, QColor, QBrush, QAction, QPainter
 
@@ -114,6 +115,54 @@ class ImageScene(QGraphicsScene):
             return None
         return [(p.x(), p.y()) for p in self.points]
 
+class HemocytometerDialog(QDialog):
+    def __init__(self, count, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Hemocytometer Calculator")
+        self.resize(350, 250)
+        
+        layout = QFormLayout(self)
+        
+        self.input_count = QSpinBox()
+        self.input_count.setRange(0, 10000000)
+        self.input_count.setValue(int(count))
+        layout.addRow("Cell Count:", self.input_count)
+        
+        self.input_squares = QDoubleSpinBox()
+        self.input_squares.setRange(0.1, 100)
+        self.input_squares.setValue(1.0)
+        self.input_squares.setToolTip("Number of 1mm x 1mm squares counted")
+        layout.addRow("Squares (1mm²):", self.input_squares)
+        
+        self.input_dilution = QDoubleSpinBox()
+        self.input_dilution.setRange(0.1, 10000)
+        self.input_dilution.setValue(1.0)
+        layout.addRow("Dilution Factor:", self.input_dilution)
+        
+        self.btn_calc = QPushButton("Calculate")
+        self.btn_calc.clicked.connect(self.calculate)
+        layout.addRow(self.btn_calc)
+        
+        self.lbl_result = QLabel("Result: - cells/mL")
+        self.lbl_result.setStyleSheet("font-weight: bold; font-size: 16px; color: #2196F3;")
+        layout.addRow(self.lbl_result)
+        
+        self.lbl_info = QLabel("Formula: (Count / Squares) * Dilution * 10,000")
+        self.lbl_info.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addRow(self.lbl_info)
+        
+    def calculate(self):
+        count = self.input_count.value()
+        squares = self.input_squares.value()
+        dilution = self.input_dilution.value()
+        
+        if squares <= 0:
+            return
+            
+        # Standard formula for Neubauer chamber (depth 0.1mm)
+        conc = (count / squares) * dilution * 10000
+        self.lbl_result.setText(f"{conc:,.0f} cells/mL")
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -178,6 +227,16 @@ class MainWindow(QMainWindow):
         self.btn_reset_roi.clicked.connect(self.reset_roi)
         right_layout.addWidget(self.btn_reset_roi)
         
+        # Zoom Controls
+        zoom_layout = QHBoxLayout()
+        self.btn_zoom_in = QPushButton("Zoom In (+)")
+        self.btn_zoom_in.clicked.connect(self.zoom_in)
+        self.btn_zoom_out = QPushButton("Zoom Out (-)")
+        self.btn_zoom_out.clicked.connect(self.zoom_out)
+        zoom_layout.addWidget(self.btn_zoom_in)
+        zoom_layout.addWidget(self.btn_zoom_out)
+        right_layout.addLayout(zoom_layout)
+        
         right_layout.addStretch()
         
         self.btn_load_model = QPushButton("Load Model (.pt)")
@@ -199,6 +258,12 @@ class MainWindow(QMainWindow):
         self.lbl_result = QLabel("Count: -")
         self.lbl_result.setStyleSheet("font-size: 24px; font-weight: bold;")
         right_layout.addWidget(self.lbl_result)
+        
+        # Calculator Button
+        self.btn_calc = QPushButton("Hemocytometer Calculator")
+        self.btn_calc.setStyleSheet("background-color: #2196F3; color: white; padding: 8px;")
+        self.btn_calc.clicked.connect(self.open_calculator)
+        right_layout.addWidget(self.btn_calc)
         
         right_layout.addStretch()
 
@@ -259,6 +324,25 @@ class MainWindow(QMainWindow):
             self.scene.polygon_item = None
         self.btn_draw_roi.setChecked(False)
         self.toggle_drawing()
+
+    def zoom_in(self):
+        self.view.scale(1.2, 1.2)
+
+    def zoom_out(self):
+        self.view.scale(1/1.2, 1/1.2)
+
+    def open_calculator(self):
+        # Get current count from label if possible
+        text = self.lbl_result.text()
+        count = 0
+        if "Count:" in text:
+            try:
+                count = int(text.split(":")[1].strip())
+            except:
+                pass
+        
+        dlg = HemocytometerDialog(count, self)
+        dlg.exec()
 
     def load_model_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Model", "", "Model Files (*.pt)")
