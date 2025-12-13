@@ -129,9 +129,16 @@ class MainWindow(QMainWindow):
             # If running as script
             application_path = os.path.dirname(os.path.abspath(__file__))
             
+        # Try best.pt first, then search for any .pt file
         self.model_path = os.path.join(application_path, "best.pt")
+        if not os.path.exists(self.model_path):
+            import glob
+            pt_files = glob.glob(os.path.join(application_path, "*.pt"))
+            if pt_files:
+                self.model_path = pt_files[0]
         
         self.init_ui()
+        self.lbl_model.setText(f"Model: {os.path.basename(self.model_path)}")
         
     def init_ui(self):
         # Main Layout
@@ -200,12 +207,21 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.view)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(1, 4) # Image view gets most space
-        
-        layout.addWidget(splitter)
+        , '.tif', '.tiff', '.webp']
+            for f in os.listdir(folder):
+                if any(f.lower().endswith(ext) for ext in extensions):
+                    self.file_list.addItem(os.path.join(folder, f))
 
-    def load_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if folder:
+    def load_image(self, item):
+        # Reset drawing state first to prevent crash
+        if self.btn_draw_roi.isChecked():
+            self.btn_draw_roi.setChecked(False)
+            self.toggle_drawing()
+        else:
+            # Ensure scene drawing state is reset even if button wasn't checked
+            self.scene.drawing = False
+            self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            
             self.file_list.clear()
             extensions = ['.jpg', '.jpeg', '.png', '.bmp']
             for f in os.listdir(folder):
@@ -224,6 +240,7 @@ class MainWindow(QMainWindow):
             self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
             self.lbl_result.setText("Count: -")
             self.btn_draw_roi.setChecked(False)
+            self.scene.drawing = False # Explicitly stop drawing
 
     def toggle_drawing(self):
         if self.btn_draw_roi.isChecked():
