@@ -16,11 +16,12 @@ class InferenceWorker(QThread):
     finished = pyqtSignal(object, int, str) # result_image, count, error_message
     progress = pyqtSignal(str)
 
-    def __init__(self, model_path, image_path, roi_points):
+    def __init__(self, model_path, image_path, roi_points, conf_thres):
         super().__init__()
         self.model_path = model_path
         self.image_path = image_path
         self.roi_points = roi_points
+        self.conf_thres = conf_thres
 
     def run(self):
         try:
@@ -28,7 +29,7 @@ class InferenceWorker(QThread):
             detector = MicroalgaeDetector(self.model_path)
             
             self.progress.emit("Running inference...")
-            detections, original_img = detector.predict(self.image_path, self.roi_points)
+            detections, original_img = detector.predict(self.image_path, self.roi_points, self.conf_thres)
             
             self.progress.emit("Drawing results...")
             result_img = detector.draw_results(original_img, detections)
@@ -116,26 +117,37 @@ class ImageScene(QGraphicsScene):
         return [(p.x(), p.y()) for p in self.points]
 
 class HemocytometerDialog(QDialog):
-    def __init__(self, count, parent=None):
+    def __init__(self, counts, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Hemocytometer Calculator")
-        self.resize(350, 250)
+        self.resize(400, 300)
         
         layout = QFormLayout(self)
         
-        self.input_count = QSpinBox()
-        self.input_count.setRange(0, 10000000)
-        self.input_count.setValue(int(count))
-        layout.addRow("Cell Count:", self.input_count)
+        # Handle single count or list of counts
+        if isinstance(counts, list):
+            self.counts = counts
+            avg_count = sum(counts) / len(counts) if counts else 0
+            count_text = f"{avg_count:.1f} (Avg of {len(counts)} images)"
+            self.base_count = avg_count
+        else:
+            self.counts = [counts]
+            self.base_count = counts
+            count_text = str(counts)
+            
+        self.lbl_count_display = QLabel(count_text)
+        layout.addRow("Cell Count:", self.lbl_count_display)
         
         self.input_squares = QDoubleSpinBox()
-        self.input_squares.setRange(0.1, 100)
+        self.input_squares.setRange(0.0001, 100)
+        self.input_squares.setDecimals(4)
         self.input_squares.setValue(1.0)
         self.input_squares.setToolTip("Number of 1mm x 1mm squares counted")
         layout.addRow("Squares (1mm²):", self.input_squares)
         
         self.input_dilution = QDoubleSpinBox()
-        self.input_dilution.setRange(0.1, 10000)
+        self.input_dilution.setRange(0.0001, 10000)
+        self.input_dilution.setDecimals(4)
         self.input_dilution.setValue(1.0)
         layout.addRow("Dilution Factor:", self.input_dilution)
         
@@ -152,7 +164,6 @@ class HemocytometerDialog(QDialog):
         layout.addRow(self.lbl_info)
         
     def calculate(self):
-        count = self.input_count.value()
         squares = self.input_squares.value()
         dilution = self.input_dilution.value()
         
@@ -160,7 +171,7 @@ class HemocytometerDialog(QDialog):
             return
             
         # Standard formula for Neubauer chamber (depth 0.1mm)
-        conc = (count / squares) * dilution * 10000
+        conc = (self.base_count / squares) * dilution * 10000
         self.lbl_result.setText(f"{conc:,.0f} cells/mL")
 
 class MainWindow(QMainWindow):
@@ -246,6 +257,16 @@ class MainWindow(QMainWindow):
         self.lbl_model = QLabel("Model: best.pt")
         right_layout.addWidget(self.lbl_model)
         
+        # Confidence Threshold
+        conf_layout = QHBoxLayout()
+        conf_layout.addWidget(QLabel("Confidence:"))
+        self.spin_conf = QDoubleSpinBox()
+        self.spin_conf.setRange(0.01, 1.0)
+        self.spin_conf.setSingleStep(0.05)
+        self.spin_conf.setValue(0.05) # Default from user request
+        conf_layout.addWidget(self.spin_conf)
+        right_layout.addLayout(conf_layout)
+        
         self.btn_run = QPushButton("Run Counting")
         self.btn_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         self.btn_run.clicked.connect(self.run_inference)
@@ -259,11 +280,21 @@ class MainWindow(QMainWindow):
         self.lbl_result.setStyleSheet("font-size: 24px; font-weight: bold;")
         right_layout.addWidget(self.lbl_result)
         
-        # Calculator Button
+        # Calculator Buttons
+        calc_layout = QVBoxLayout()
+        
         self.btn_calc = QPushButton("Hemocytometer Calculator")
         self.btn_calc.setStyleSheet("background-color: #2196F3; color: white; padding: 8px;")
         self.btn_calc.clicked.connect(self.open_calculator)
-        right_layout.addWidget(self.btn_calc)
+        calc_layout.addWidget(self.btn_calc)
+        
+        self.btn_avg_calc = QPushButton("Average & Calculate (Selected Files)")
+        self.btn_avg_calc.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px;")
+        self.btn_avg_calc.clicked.connect(self.calculate_average)
+        self.btn_avg_calc.setToolTip("Select multiple files in the list to calculate average count")
+        calc_layout.addWidget(self.btn_avg_calc)
+        
+        right_layout.addLayout(calc_layout)
         
         right_layout.addStretch()
 
@@ -280,6 +311,7 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
             self.file_list.clear()
+            self.file_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection) # Enable multi-selection
             extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']
             for f in os.listdir(folder):
                 if any(f.lower().endswith(ext) for ext in extensions):
@@ -343,6 +375,47 @@ class MainWindow(QMainWindow):
         
         dlg = HemocytometerDialog(count, self)
         dlg.exec()
+        
+    def calculate_average(self):
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Warning", "Please select multiple images from the list first.")
+            return
+            
+        if not os.path.exists(self.model_path):
+            QMessageBox.warning(self, "Warning", f"Model file not found: {self.model_path}")
+            return
+            
+        # Create a progress dialog since this might take a while
+        progress = QProgressBar(self)
+        progress.setRange(0, len(selected_items))
+        progress.setValue(0)
+        progress.setWindowTitle("Processing Batch...")
+        progress.show()
+        
+        counts = []
+        detector = MicroalgaeDetector(self.model_path)
+        conf = self.spin_conf.value()
+        
+        # Note: This runs in main thread for simplicity, but could freeze UI for large batches
+        # For better UX, this should be moved to a worker thread, but keeping it simple for now
+        try:
+            for i, item in enumerate(selected_items):
+                path = item.text()
+                # No ROI for batch processing (uses full image)
+                detections, _ = detector.predict(path, None, conf)
+                counts.append(len(detections))
+                progress.setValue(i + 1)
+                QApplication.processEvents() # Keep UI responsive
+                
+            progress.close()
+            
+            dlg = HemocytometerDialog(counts, self)
+            dlg.exec()
+            
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(self, "Error", str(e))
 
     def load_model_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Model", "", "Model Files (*.pt)")
@@ -360,8 +433,9 @@ class MainWindow(QMainWindow):
             return
 
         roi = self.scene.get_roi_points()
+        conf = self.spin_conf.value()
         
-        self.worker = InferenceWorker(self.model_path, self.current_image_path, roi)
+        self.worker = InferenceWorker(self.model_path, self.current_image_path, roi, conf)
         self.worker.progress.connect(lambda s: self.progress_bar.setFormat(s))
         self.worker.finished.connect(self.on_inference_finished)
         

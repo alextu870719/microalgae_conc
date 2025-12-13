@@ -11,10 +11,11 @@ class MicroalgaeDetector:
         self.overlap = 0.2
         self.conf_thres = 0.05
 
-    def predict(self, image_path, roi_points=None):
+    def predict(self, image_path, roi_points=None, conf_thres=0.05):
         """
         image_path: Path to image
         roi_points: List of (x, y) tuples defining the polygon. If None, use full image.
+        conf_thres: Confidence threshold for this prediction
         """
         img = cv2.imread(image_path)
         if img is None:
@@ -56,7 +57,7 @@ class MicroalgaeDetector:
                 crop = img[y1:y2, x1:x2]
                 
                 # Inference
-                results = self.model(crop, verbose=False, conf=self.conf_thres)
+                results = self.model(crop, verbose=False, conf=conf_thres)
                 
                 for r in results:
                     boxes = r.boxes
@@ -97,7 +98,7 @@ class MicroalgaeDetector:
         # Convert scores to list to satisfy some opencv versions/linters
         scores_list = scores.tolist()
         
-        indices = cv2.dnn.NMSBoxes(boxes_wh, scores_list, score_threshold=self.conf_thres, nms_threshold=0.4)
+        indices = cv2.dnn.NMSBoxes(boxes_wh, scores_list, score_threshold=conf_thres, nms_threshold=0.4)
         
         final_detections = []
         for i in indices:
@@ -109,7 +110,19 @@ class MicroalgaeDetector:
 
     def draw_results(self, img, detections):
         output_img = img.copy()
-        for box in detections:
+        for i, box in enumerate(detections):
             x1, y1, x2, y2, conf = box
+            # Draw rectangle
             cv2.rectangle(output_img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+            
+            # Draw label number
+            label = str(i + 1)
+            font_scale = 0.6
+            thickness = 2
+            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            
+            # Draw background for text for better visibility
+            cv2.rectangle(output_img, (int(x1), int(y1) - 20), (int(x1) + w, int(y1)), (0, 255, 0), -1)
+            cv2.putText(output_img, label, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+            
         return output_img
