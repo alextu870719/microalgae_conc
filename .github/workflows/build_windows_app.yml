@@ -49,11 +49,11 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: MicroalgaeCounter-Windows
-        path: gui_app/dist/MicroalgaeCounter.exe
+        path: gui_app/dist/MicroalgaeCounter
 
     - name: Zip Build for Release
       working-directory: ./gui_app/dist
-      run: powershell Compress-Archive -Path MicroalgaeCounter.exe -DestinationPath MicroalgaeCounter.zip
+      run: powershell Compress-Archive -Path MicroalgaeCounter -DestinationPath MicroalgaeCounter.zip
 
     - name: Create Release
       uses: ncipollo/release-action@v1
