@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QProgressBar, QMessageBox, QGraphicsView, QGraphicsScene, 
                              QGraphicsPixmapItem, QGraphicsPolygonItem)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF
-from PyQt6.QtGui import QPixmap, QImage, QPolygonF, QPen, QColor, QBrush, QAction
+from PyQt6.QtGui import QPixmap, QImage, QPolygonF, QPen, QColor, QBrush, QAction, QPainter
 
 from inference import MicroalgaeDetector
 
@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
         # Center Panel: Image View
         self.scene = ImageScene()
         self.view = QGraphicsView(self.scene)
-        self.view.setRenderHint(Qt.RenderHintType.Antialiasing)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         
         # Right Panel: Controls
