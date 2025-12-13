@@ -108,8 +108,11 @@ class MicroalgaeDetector:
             
         return final_detections, img
 
-    def draw_results(self, img, detections):
+    def draw_results(self, img, detections, draw_labels=True):
         output_img = img.copy()
+        if not draw_labels:
+            return output_img
+            
         for i, box in enumerate(detections):
             x1, y1, x2, y2, conf = box
             # Draw rectangle

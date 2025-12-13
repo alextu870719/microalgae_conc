@@ -6,14 +6,14 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QPushButton, QLabel, QFileDialog, QListWidget, QSplitter, 
                              QProgressBar, QMessageBox, QGraphicsView, QGraphicsScene, 
                              QGraphicsPixmapItem, QGraphicsPolygonItem, QDialog, QFormLayout, 
-                             QSpinBox, QDoubleSpinBox)
+                             QSpinBox, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF
 from PyQt6.QtGui import QPixmap, QImage, QPolygonF, QPen, QColor, QBrush, QAction, QPainter
 
 from inference import MicroalgaeDetector
 
 class InferenceWorker(QThread):
-    finished = pyqtSignal(object, int, str) # result_image, count, error_message
+    finished = pyqtSignal(object, object, object, int, str) # result_image, original_img, detections, count, error_message
     progress = pyqtSignal(str)
 
     def __init__(self, model_path, image_path, roi_points, conf_thres):
@@ -36,10 +36,11 @@ class InferenceWorker(QThread):
             
             # Convert BGR to RGB for Qt
             result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
+            original_img_rgb = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
             
-            self.finished.emit(result_img, len(detections), "")
+            self.finished.emit(result_img, original_img_rgb, detections, len(detections), "")
         except Exception as e:
-            self.finished.emit(None, 0, str(e))
+            self.finished.emit(None, None, None, 0, str(e))
 
 class ImageScene(QGraphicsScene):
     def __init__(self, parent=None):
@@ -51,8 +52,11 @@ class ImageScene(QGraphicsScene):
         self.temp_line = None
 
     def set_image(self, cv_img):
+        # Save current polygon points before clearing
+        current_points = self.points
+        
         self.clear()
-        self.polygon_item = None # Important: clear() deletes the C++ object, so we must reset the Python reference
+        self.polygon_item = None 
         self.points = []
         self.drawing = False
         
@@ -69,6 +73,11 @@ class ImageScene(QGraphicsScene):
         self.image_item = QGraphicsPixmapItem(pixmap)
         self.addItem(self.image_item)
         self.setSceneRect(0, 0, w, h)
+        
+        # Restore polygon if it exists
+        if current_points:
+            self.points = current_points
+            self.update_polygon(closed=True)
 
     def start_drawing(self):
         self.drawing = True
@@ -181,6 +190,8 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         
         self.current_image_path = None
+        self.current_detections = None
+        self.current_original_img = None
         
         # Determine the path to the model file
         if getattr(sys, 'frozen', False):
@@ -280,6 +291,12 @@ class MainWindow(QMainWindow):
         conf_layout.addWidget(self.spin_conf)
         right_layout.addLayout(conf_layout)
         
+        # Show Labels Toggle
+        self.chk_show_labels = QCheckBox("Show Labels")
+        self.chk_show_labels.setChecked(True)
+        self.chk_show_labels.stateChanged.connect(self.toggle_labels)
+        right_layout.addWidget(self.chk_show_labels)
+        
         self.btn_run = QPushButton("Run Counting")
         self.btn_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         self.btn_run.clicked.connect(self.run_inference)
@@ -343,13 +360,17 @@ class MainWindow(QMainWindow):
         path = item.text()
         self.current_image_path = path
         
+        # Clear previous results
+        self.current_detections = None
+        self.current_original_img = None
+        self.lbl_result.setText("Count: -")
+        
         # Read with opencv to ensure we have data for scene
         img = cv2.imread(path)
         if img is not None:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.scene.set_image(img)
             self.view.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-            self.lbl_result.setText("Count: -")
             self.btn_draw_roi.setChecked(False)
             self.scene.drawing = False # Explicitly stop drawing
 
@@ -409,14 +430,14 @@ class MainWindow(QMainWindow):
         counts = []
         detector = MicroalgaeDetector(self.model_path)
         conf = self.spin_conf.value()
+        roi = self.scene.get_roi_points() # Use current ROI for all images
         
         # Note: This runs in main thread for simplicity, but could freeze UI for large batches
         # For better UX, this should be moved to a worker thread, but keeping it simple for now
         try:
             for i, item in enumerate(selected_items):
                 path = item.text()
-                # No ROI for batch processing (uses full image)
-                detections, _ = detector.predict(path, None, conf)
+                detections, _ = detector.predict(path, roi, conf)
                 counts.append(len(detections))
                 progress.setValue(i + 1)
                 QApplication.processEvents() # Keep UI responsive
@@ -457,7 +478,7 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(False)
         self.worker.start()
 
-    def on_inference_finished(self, result_img, count, error):
+    def on_inference_finished(self, result_img, original_img, detections, count, error):
         self.progress_bar.setVisible(False)
         self.btn_run.setEnabled(True)
         
@@ -465,11 +486,62 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", error)
             return
             
+        self.current_original_img = original_img
+        self.current_detections = detections
         self.lbl_result.setText(f"Count: {count}")
-        self.scene.set_image(result_img)
         
-        # Re-draw ROI if it existed, just for visual confirmation
-        # (Optional, might obscure results)
+        # Apply current toggle state
+        self.redraw_results()
+        
+    def toggle_labels(self):
+        if self.current_original_img is not None and self.current_detections is not None:
+            self.redraw_results()
+            
+    def redraw_results(self):
+        if self.current_original_img is None:
+            return
+            
+        # We need to use the detector's draw function, but we don't want to reload the model
+        # So we'll just use a static method or instantiate a lightweight version if needed
+        # Or better, just import the class and use it if the method was static, but it's not.
+        # However, draw_results doesn't use self.model, so we can just create an instance cheaply
+        # or refactor. For now, creating an instance is cheap enough as model load is lazy in YOLO? 
+        # No, YOLO loads on init. 
+        # Let's just manually call the method if we can, or move draw_results to be static.
+        # Actually, we can just use the worker's logic or similar.
+        # Simplest: Just re-implement drawing here or make draw_results static.
+        # Let's make a temporary detector instance just for drawing? No, that loads the model.
+        # Let's just use cv2 here directly since we have the logic.
+        
+        # Wait, I can just make draw_results static in inference.py? 
+        # Let's just copy the drawing logic here to avoid reloading model.
+        
+        img = self.current_original_img.copy()
+        # Convert RGB to BGR for OpenCV drawing if needed, but we have RGB here.
+        # The original_img from worker is RGB.
+        # OpenCV drawing functions work on any array, but colors are BGR usually.
+        # If our image is RGB, (0, 255, 0) is Green.
+        
+        draw_labels = self.chk_show_labels.isChecked()
+        
+        if draw_labels and self.current_detections:
+            for i, box in enumerate(self.current_detections):
+                x1, y1, x2, y2, conf = box
+                # Draw rectangle (Green)
+                cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                
+                # Draw label number
+                label = str(i + 1)
+                font_scale = 0.6
+                thickness = 2
+                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+                
+                # Draw background
+                cv2.rectangle(img, (int(x1), int(y1) - 20), (int(x1) + w, int(y1)), (0, 255, 0), -1)
+                # Text (Black)
+                cv2.putText(img, label, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
+        
+        self.scene.set_image(img)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
