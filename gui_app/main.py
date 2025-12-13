@@ -207,7 +207,14 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.view)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(1, 4) # Image view gets most space
-        , '.tif', '.tiff', '.webp']
+        
+        layout.addWidget(splitter)
+
+    def load_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder:
+            self.file_list.clear()
+            extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp']
             for f in os.listdir(folder):
                 if any(f.lower().endswith(ext) for ext in extensions):
                     self.file_list.addItem(os.path.join(folder, f))
@@ -222,13 +229,6 @@ class MainWindow(QMainWindow):
             self.scene.drawing = False
             self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             
-            self.file_list.clear()
-            extensions = ['.jpg', '.jpeg', '.png', '.bmp']
-            for f in os.listdir(folder):
-                if any(f.lower().endswith(ext) for ext in extensions):
-                    self.file_list.addItem(os.path.join(folder, f))
-
-    def load_image(self, item):
         path = item.text()
         self.current_image_path = path
         
